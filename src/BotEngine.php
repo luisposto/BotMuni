@@ -3,6 +3,7 @@ require_once __DIR__ . '/Db.php';
 require_once __DIR__ . '/TwilioClient.php';
 
 class BotEngine {
+    private const MENU_COMMANDS = ['MENU', 'MENU.', '0', 'INICIO'];
 
     /**
      * @param string $waFrom      Ej: "whatsapp:+54911..."
@@ -19,13 +20,12 @@ class BotEngine {
         $isNew = (bool)($session['is_new'] ?? false);
 
         // Normalización de comandos
-        $cmd = mb_strtoupper(trim($text), 'UTF-8');
-        $cmd = str_replace(['Á','É','Í','Ó','Ú','Ü'], ['A','E','I','O','U','U'], $cmd);
+        $cmd = $this->normalizeCommand($text);
 
 // =========================
 // ATAJO GLOBAL AL MENÚ (prioridad absoluta)
 // =========================
-if (in_array($cmd, ['MENU', 'MENÚ', 'MENU.', '0', 'INICIO'], true)) {
+if ($this->isMenuCommand($cmd)) {
     $this->setSessionMode($waFrom, 'BOT');
 
     $mainId = $this->getNodeIdByKey('MAIN');
@@ -135,7 +135,7 @@ if ($mode !== 'HUMAN') {
             // Volver al bot (dos comportamientos):
             // - MENU/0/INICIO => vuelve al MAIN
             // - BOT/VOLVER    => vuelve al mismo nodo donde estaba (sin resetear)
-            if ($cmd === 'MENU' || $cmd === 'MENU.' || $cmd === 'MENÚ' || $cmd === '0' || $cmd === 'INICIO') {
+            if ($this->isMenuCommand($cmd)) {
                 $this->setSessionMode($waFrom, 'BOT');
                 $currentNodeId = $this->getNodeIdByKey('MAIN');
                 $this->updateSessionNode($waFrom, $currentNodeId);
@@ -399,6 +399,16 @@ Escribí una opción del menú
         return $row ?: null;
     }
 
+    private function normalizeCommand(string $text): string {
+        $cmd = mb_strtoupper(trim($text), 'UTF-8');
+        return str_replace(['Á','É','Í','Ó','Ú','Ü'], ['A','E','I','O','U','U'], $cmd);
+    }
+
+    private function isMenuCommand(string $text): bool {
+        $cmd = $this->normalizeCommand($text);
+        return in_array($cmd, self::MENU_COMMANDS, true);
+    }
+
     private function createHandoffRequest(string $waFrom, string $targetWa, int $nodeId, string $triggerText): void {
         $pdo = Db::pdo();
         $stmt = $pdo->prepare('INSERT INTO handoff_requests (wa_from, target_wa, node_id, trigger_text, status, created_at) VALUES (?, ?, ?, ?, "OPEN", NOW())');
@@ -536,7 +546,7 @@ Escribí una opción del menú
     // Regla: saluda 1 vez por día, no saluda si volvió desde HUMANO (suppress_greeting=1)
     private function shouldGreetToday(array $session, string $cmd, string $tz): bool {
 // No saludar ante comandos de control (evita loops cuando el usuario pone MENU)
-if (in_array($cmd, ['MENU','MENÚ','MENU.','0','INICIO'], true)) return false;
+if ($this->isMenuCommand($cmd)) return false;
 
         // No saludar si volvió desde HUMANO (se apaga automáticamente al saludar/mostrar menú)
         if ((int)($session['suppress_greeting'] ?? 0) === 1) return false;
